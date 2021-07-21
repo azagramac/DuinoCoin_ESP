@@ -1,9 +1,9 @@
-const char* ssid     = "YOUR_SSID_WIFI";	            // Change this to your WiFi SSID
-const char* password = "YOUR_PASSWORD_WIFI";	        // Change this to your WiFi password
-const char* ducouser = "YOUR_USERNAME_DUINOCOIN";  		// Change this to your Duino-Coin username
-const char* rigname  = "ESP32";		                    // Change this if you want to display a custom rig name in the Wallet
-#define LED_BUILTIN 2				                          // Change this if your board has built-in led on non-standard pin (NodeMCU - 16 or 2)
-#define WDT_TIMEOUT 60				                        // Define watchdog timer seconds
+const char* ssid     = "YOUR_SSID_WIFI";	                    // Change this to your WiFi SSID
+const char* password = "YOUR_PASSWORD_WIFI";                    // Change this to your WiFi password
+const char* ducouser = "YOUR_USERNAME_DUINOCOIN";               // Change this to your Duino-Coin username
+const char* rigname  = "ESP32";                                 // Change this if you want to display a custom rig name in the Wallet
+#define LED_BUILTIN 2                                           // Change this if your board has built-in led on non-standard pin (NodeMCU - 16 or 2)
+#define WDT_TIMEOUT 60                                          // Define watchdog timer seconds
 
 //////////////////////////////////////////////////////////
 //  If you're using the ESP32-CAM board or other board
