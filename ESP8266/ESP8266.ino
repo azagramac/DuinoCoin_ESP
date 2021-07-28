@@ -8,17 +8,20 @@ IPAddress primaryDNS(1, 1, 1, 1);
 IPAddress secondaryDNS(1, 0, 0, 1);
 #include <ArduinoOTA.h>
 
-//////////////////////////////////////////////////////////
-// NOTE: If during compilation, the below line causes a
-// "fatal error: Crypto.h: No such file or directory"
-// message to occur; it means that you do NOT have the
-// latest version of the ESP8266/Arduino Core library.
-//
-// To install/upgrade it, go to the below link and
-// follow the instructions of the readme file:
-//
-//       https://github.com/esp8266/Arduino
-//////////////////////////////////////////////////////////
+WiFiServer TelnetServer(23);
+WiFiClient Telnet;
+
+void handleTelnet() {
+  if (TelnetServer.hasClient()) {
+    if (!Telnet || !Telnet.connected()) {
+      if (Telnet) Telnet.stop();
+      Telnet = TelnetServer.available();
+    } else {
+      TelnetServer.available().stop();
+    }
+  }
+}
+
 #include <Crypto.h>  // experimental SHA1 crypto library
 using namespace experimental::crypto;
 
@@ -119,6 +122,7 @@ void blink(uint8_t count, uint8_t pin = LED_BUILTIN) {
 void RestartESP(String msg) {
   Serial.println(msg);
   Serial.println("Resetting ESP...");
+  Telnet.println("Resetting ESP...");
   blink(BLINK_RESET_DEVICE);
   ESP.reset();
 }
@@ -184,10 +188,12 @@ void ConnectToServer() {
     return;
 
   Serial.println("\nConnecting to Duino-Coin server...");
+  Telnet.println("\nConnecting to Duino-Coin server...");
   while (!client.connect(host, port));
 
   waitForClientData();
   Serial.println("Connected to the server. Server version: " + client_buffer );
+  Telnet.println("Connected to the server. Server version: " + client_buffer );
   blink(BLINK_CLIENT_CONNECT); // Sucessfull connection with the server
 }
 
@@ -207,6 +213,9 @@ void setup() {
   Serial.begin(500000);
   Serial.println("\nDuino-Coin ESP8266 Miner v2.55");
 
+  TelnetServer.begin();
+  TelnetServer.setNoDelay(true); 
+
   // Prepare for blink() function
   pinMode(LED_BUILTIN, OUTPUT);
 
@@ -223,6 +232,9 @@ void setup() {
 }
 
 void loop() {
+  // Telnet
+  handleTelnet(); 
+
   // 1 minute watchdog
   lwdtFeed();
 
@@ -232,6 +244,7 @@ void loop() {
 
   ConnectToServer();
   Serial.println("Asking for a new job for user: " + String(USERNAME));
+  Telnet.println("Asking for a new job for user: " + String(USERNAME));
   client.print("JOB," + String(USERNAME) + ",ESP8266");
 
   waitForClientData();
@@ -245,8 +258,15 @@ void loop() {
                  + expected_hash
                  + " "
                  + String(difficulty));
-  expected_hash.toUpperCase();
 
+  Telnet.println("Job received: "
+                 + last_block_hash
+                 + " "
+                 + expected_hash
+                 + " "
+                 + String(difficulty));
+
+  expected_hash.toUpperCase();
   float start_time = micros();
   max_micros_elapsed(start_time, 0);
 
@@ -272,6 +292,18 @@ void loop() {
 
       waitForClientData();
       Serial.println(client_buffer
+                     + " share #"
+                     + String(share_count)
+                     + " (" + String(duco_numeric_result) + ")"
+                     + " hashrate: "
+                     + String(hashrate / 1000, 2)
+                     + " kH/s ("
+                     + String(elapsed_time_s)
+                     + "s) Free RAM: "
+                     + String(ESP.getFreeHeap()));
+      blink(BLINK_SHARE_FOUND);
+
+      Telnet.println("\e[1;32m" + client_buffer + "\e[0m"
                      + " share #"
                      + String(share_count)
                      + " (" + String(duco_numeric_result) + ")"
