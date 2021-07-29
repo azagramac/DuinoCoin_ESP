@@ -1,45 +1,32 @@
-#include <ESP8266WiFi.h> // Include WiFi library
-#include <ESP8266mDNS.h> // OTA libraries
+#include <ESP8266WiFi.h>                                 // Include WiFi library
+#include <ESP8266mDNS.h>                                 // OTA libraries
 #include <WiFiUdp.h>
-IPAddress local_IP(192, 168, 1, 2);                         // Change this to your IP address
-IPAddress gateway(192, 168, 1, 1);                          // Change this to your gateway
-IPAddress subnet(255, 255, 255, 0);
-IPAddress primaryDNS(1, 1, 1, 1);
-IPAddress secondaryDNS(1, 0, 0, 1);
 #include <ArduinoOTA.h>
-
-WiFiServer TelnetServer(23);
-WiFiClient Telnet;
-
-void handleTelnet() {
-  if (TelnetServer.hasClient()) {
-    if (!Telnet || !Telnet.connected()) {
-      if (Telnet) Telnet.stop();
-      Telnet = TelnetServer.available();
-    } else {
-      TelnetServer.available().stop();
-    }
-  }
-}
-
-#include <Crypto.h>  // experimental SHA1 crypto library
+#include <Crypto.h>                                      // experimental SHA1 crypto library
 using namespace experimental::crypto;
 
 #include <Ticker.h>
 
+// Setup your network
+IPAddress local_IP(192, 168, 1, 2);                      // Change this to your IP address
+IPAddress gateway(192, 168, 1, 1);                       // Change this to your gateway
+IPAddress subnet(255, 255, 255, 0);
+IPAddress primaryDNS(1, 1, 1, 1);
+IPAddress secondaryDNS(1, 0, 0, 1);
+
 namespace {
-const char* SSID          = "YOUR_SSID_WIFI";              // Change this to your WiFi name
-const char* PASSWORD      = "YOUR_PASSWORD_WIFI";          // Change this to your WiFi password
-const char* USERNAME      = "YOUR_USERNAME_DUINOCOIN";     // Change this to your Duino-Coin username
-const char* RIG_IDENTIFIER = "ESP8266";                    // Change this if you want a custom miner name
+const char* SSID          = "YOUR_SSID_WIFI";            // Change this to your WiFi name
+const char* PASSWORD      = "YOUR_PASSWORD_WIFI";        // Change this to your WiFi password
+const char* USERNAME      = "YOUR_USERNAME_DUINOCOIN";   // Change this to your Duino-Coin username
+const char* RIG_IDENTIFIER = "ESP8266T";                 // Change this if you want a custom miner name
 
 // Since 2.5.5 additional mining nodes available - you can change it manually to one of these:
 // Official Master Server: 51.15.127.80 port 2820
 // Official Kolka Pool: 149.91.88.18 port 6000
 // This will be replaced with an automatic picker in the future version
-const char * host = "149.91.88.18"; // Static server IP
-const int port = 6000;
-unsigned int share_count = 0; // Share variable
+const char * host = "149.91.88.18";                     // Static server IP
+const int port = 6000;                                  // Static server PORT
+unsigned int share_count = 0;                           // Share variable
 
 WiFiClient client;
 String client_buffer = "";
@@ -48,7 +35,7 @@ String chipID = "";
 // Loop WDT... please don't feed me...
 // See lwdtcb() and lwdtFeed() below
 Ticker lwdTimer;
-#define LWD_TIMEOUT 60000
+#define LWD_TIMEOUT   60000
 
 unsigned long lwdCurrentMillis = 0;
 unsigned long lwdTimeOutMillis = LWD_TIMEOUT;
@@ -62,6 +49,21 @@ unsigned long lwdTimeOutMillis = LWD_TIMEOUT;
 #define BLINK_SETUP_COMPLETE 2
 #define BLINK_CLIENT_CONNECT 3
 #define BLINK_RESET_DEVICE   5
+
+// Telnet
+WiFiServer TelnetServer(23);
+WiFiClient Telnet;
+
+void handleTelnet() {
+  if (TelnetServer.hasClient()) {
+    if (!Telnet || !Telnet.connected()) {
+      if (Telnet) Telnet.stop();
+      Telnet = TelnetServer.available();
+    } else {
+      TelnetServer.available().stop();
+    }
+  }
+}
 
 void SetupWifi() {
   if(!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS)) {
@@ -122,7 +124,6 @@ void blink(uint8_t count, uint8_t pin = LED_BUILTIN) {
 void RestartESP(String msg) {
   Serial.println(msg);
   Serial.println("Resetting ESP...");
-  Telnet.println("Resetting ESP...");
   blink(BLINK_RESET_DEVICE);
   ESP.reset();
 }
@@ -188,12 +189,10 @@ void ConnectToServer() {
     return;
 
   Serial.println("\nConnecting to Duino-Coin server...");
-  Telnet.println("\nConnecting to Duino-Coin server...");
   while (!client.connect(host, port));
 
   waitForClientData();
   Serial.println("Connected to the server. Server version: " + client_buffer );
-  Telnet.println("Connected to the server. Server version: " + client_buffer );
   blink(BLINK_CLIENT_CONNECT); // Sucessfull connection with the server
 }
 
@@ -213,9 +212,6 @@ void setup() {
   Serial.begin(500000);
   Serial.println("\nDuino-Coin ESP8266 Miner v2.55");
 
-  TelnetServer.begin();
-  TelnetServer.setNoDelay(true); 
-
   // Prepare for blink() function
   pinMode(LED_BUILTIN, OUTPUT);
 
@@ -232,9 +228,6 @@ void setup() {
 }
 
 void loop() {
-  // Telnet
-  handleTelnet(); 
-
   // 1 minute watchdog
   lwdtFeed();
 
@@ -242,9 +235,12 @@ void loop() {
   VerifyWifi();
   ArduinoOTA.handle();
 
+  // Telnet handled
+  handleTelnet();
+
   ConnectToServer();
   Serial.println("Asking for a new job for user: " + String(USERNAME));
-  Telnet.println("Asking for a new job for user: " + String(USERNAME));
+  Telnet.println("New job for user: " + String(USERNAME));
   client.print("JOB," + String(USERNAME) + ",ESP8266");
 
   waitForClientData();
@@ -265,8 +261,8 @@ void loop() {
                  + expected_hash
                  + " "
                  + String(difficulty));
-
   expected_hash.toUpperCase();
+
   float start_time = micros();
   max_micros_elapsed(start_time, 0);
 
@@ -301,6 +297,7 @@ void loop() {
                      + String(elapsed_time_s)
                      + "s) Free RAM: "
                      + String(ESP.getFreeHeap()));
+
       blink(BLINK_SHARE_FOUND);
 
       Telnet.println("\e[1;32m" + client_buffer + "\e[0m"
