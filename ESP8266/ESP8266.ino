@@ -193,6 +193,7 @@ void ConnectToServer() {
 
   waitForClientData();
   Serial.println("Connected to the server. Server version: " + client_buffer );
+  Telnet.println("Connected to the server. Server version: " + client_buffer );
   blink(BLINK_CLIENT_CONNECT); // Sucessfull connection with the server
 }
 
@@ -212,6 +213,10 @@ void setup() {
   Serial.begin(500000);
   Serial.println("\nDuino-Coin ESP8266 Miner v2.55");
 
+  // Start Telnet connection
+  TelnetServer.begin();
+  TelnetServer.setNoDelay(true);
+  
   // Prepare for blink() function
   pinMode(LED_BUILTIN, OUTPUT);
 
