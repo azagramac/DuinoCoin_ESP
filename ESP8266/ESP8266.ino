@@ -271,7 +271,7 @@ bool max_micros_elapsed(unsigned long current, unsigned long max_elapsed) {
 void setup() {
   // Start serial connection
   Serial.begin(115200);
-  Serial.println("\nDuino-Coin ESP8266 Miner v2.55");
+  Serial.println("\nDuino-Coin ESP8266 Miner v2.6.3");
 
   // Prepare for blink() function
   pinMode(LED_BUILTIN, OUTPUT);
