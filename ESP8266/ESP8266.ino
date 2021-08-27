@@ -1,25 +1,18 @@
-//////////////////////////////////////////////////////////
-//  _____        _                    _____      _
-// |  __ \      (_)                  / ____|    (_)
-// | |  | |_   _ _ _ __   ___ ______| |     ___  _ _ __
-// | |  | | | | | | '_ \ / _ \______| |    / _ \| | '_ \ 
-// | |__| | |_| | | | | | (_) |     | |___| (_) | | | | |
-// |_____/ \__,_|_|_| |_|\___/       \_____\___/|_|_| |_|
-//  Code for ESP8266 boards - V2.6.3
-//  © Duino-Coin Community 2019-2021
-//  Distributed under MIT License
-//////////////////////////////////////////////////////////
-//  https://github.com/revoxhere/duino-coin - GitHub
-//  https://duinocoin.com - Official Website
-//  https://discord.gg/k48Ht5y - Discord
-//  https://github.com/revoxhere - @revox
-//  https://github.com/JoyBed - @JoyBed
-//  https://github.com/kickshawprogrammer - @kickshawprogrammer
-//  https://github.com/ricaun - @ricaun
-//////////////////////////////////////////////////////////
-//  If you don't know what to do, visit official website
-//  and navigate to Getting Started page. Happy mining!
-//////////////////////////////////////////////////////////
+/*
+  ,------.          ,--.                       ,-----.       ,--.         
+  |  .-.  \ ,--.,--.`--',--,--,  ,---. ,-----.'  .--./ ,---. `--',--,--,  
+  |  |  \  :|  ||  |,--.|      \| .-. |'-----'|  |    | .-. |,--.|      \ 
+  |  '--'  /'  ''  '|  ||  ||  |' '-' '       '  '--'\' '-' '|  ||  ||  | 
+  `-------'  `----' `--'`--''--' `---'         `-----' `---' `--'`--''--' 
+  Official code for ESP8266 boards                            version 2.6.3
+  
+  Duino-Coin Team & Community 2019-2021 © MIT Licensed
+  https://duinocoin.com
+  https://github.com/revoxhere/duino-coin
+
+  If you don't know where to start, visit official website and navigate to
+  the Getting Started page. Have fun mining!
+*/
 
 #include <ESP8266WiFi.h> // Include WiFi library
 #include <ESP8266mDNS.h> // OTA libraries
@@ -46,18 +39,17 @@ using namespace experimental::crypto;
 
 #include <Ticker.h>
 
-// Setup your network
-IPAddress local_IP(192, 168, 1, 10);                    // Change this to your IP address
-IPAddress gateway(192, 168, 1, 1);                      // Change this to your gateway
+IPAddress local_IP(192, 168, 1, 10);
+IPAddress gateway(192, 168, 1, 1);
 IPAddress subnet(255, 255, 255, 0);
 IPAddress primaryDNS(1, 1, 1, 1);
 IPAddress secondaryDNS(1, 0, 0, 1);
 
 namespace {
-const char* SSID          = "YOUR_SSID_WIFI";           // Change this to your WiFi name
-const char* PASSWORD      = "YOUR_PASSWORD_WIFI";       // Change this to your WiFi password
-const char* USERNAME      = "azagramac";                // Change this to your Duino-Coin username
-const char* RIG_IDENTIFIER = "ESP8266";                 // Change this if you want a custom miner name
+const char* SSID            = "YOUR_SSID_WIFI";           // Change this to your WiFi name
+const char* PASSWORD        = "YOUR_PASSWORD_WIFI";       // Change this to your WiFi password
+const char* USERNAME        = "YOUR_USERNAME_DUINOCOIN";  // Change this to your Duino-Coin username
+const char* RIG_IDENTIFIER  = "ESP8266";                  // Change this if you want a custom miner name
 
 const char * urlPool = "http://51.15.127.80:4242/getPool";
 unsigned int share_count = 0; // Share variable
@@ -70,7 +62,7 @@ void UpdateHostPort(String input) {
   deserializeJson(doc, input);
 
   const char* name = doc["name"];
-  host = String(doc["ip"]);
+  host = String((const char*)doc["ip"]);
   port = int(doc["port"]);
 
   Serial.println("Fetched pool: " + String(name) + " " + String(host) + " " + String(port));
@@ -109,7 +101,7 @@ String chipID = "";
 // Loop WDT... please don't feed me...
 // See lwdtcb() and lwdtFeed() below
 Ticker lwdTimer;
-#define LWD_TIMEOUT   60000
+#define LWD_TIMEOUT 60000
 
 unsigned long lwdCurrentMillis = 0;
 unsigned long lwdTimeOutMillis = LWD_TIMEOUT;
@@ -297,7 +289,7 @@ void loop() {
   ArduinoOTA.handle();
 
   ConnectToServer();
-  Serial.println("New job for user: " + String(USERNAME));
+  Serial.println("Asking for a new job for user: " + String(USERNAME));
   client.print("JOB," + String(USERNAME) + ",ESP8266");
 
   waitForClientData();
