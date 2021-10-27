@@ -1,11 +1,11 @@
 /*
-  ,------.          ,--.                       ,-----.       ,--.         
-  |  .-.  \ ,--.,--.`--',--,--,  ,---. ,-----.'  .--./ ,---. `--',--,--,  
-  |  |  \  :|  ||  |,--.|      \| .-. |'-----'|  |    | .-. |,--.|      \ 
-  |  '--'  /'  ''  '|  ||  ||  |' '-' '       '  '--'\' '-' '|  ||  ||  | 
-  `-------'  `----' `--'`--''--' `---'         `-----' `---' `--'`--''--' 
-  Official code for ESP8266 boards                            version 2.6.3
-  
+  ,------.          ,--.                       ,-----.       ,--.
+  |  .-.  \ ,--.,--.`--',--,--,  ,---. ,-----.'  .--./ ,---. `--',--,--,
+  |  |  \  :|  ||  |,--.|      \| .-. |'-----'|  |    | .-. |,--.|      \
+  |  '--'  /'  ''  '|  ||  ||  |' '-' '       '  '--'\' '-' '|  ||  ||  |
+  `-------'  `----' `--'`--''--' `---'         `-----' `---' `--'`--''--'
+  Official code for ESP8266 boards                          version 2.7.5
+
   Duino-Coin Team & Community 2019-2021 © MIT Licensed
   https://duinocoin.com
   https://github.com/revoxhere/duino-coin
@@ -14,32 +14,33 @@
   the Getting Started page. Have fun mining!
 */
 
+/* If during compilation the line below causes a
+  "fatal error: arduinoJson.h: No such file or directory"
+  message to occur; it means that you do NOT have the
+  ArduinoJSON library installed. To install it, 
+  go to the below link and follow the instructions: 
+  https://github.com/revoxhere/duino-coin/issues/832 */
+#include <ArduinoJson.h>
+
+/* If during compilation the line below causes a
+  "fatal error: Crypto.h: No such file or directory"
+  message to occur; it means that you do NOT have the
+  latest version of the ESP8266/Arduino Core library.
+  To install/upgrade it, go to the below link and
+  follow the instructions of the readme file:
+  https://github.com/esp8266/Arduino */
+#include <Crypto.h>  // experimental SHA1 crypto library
+using namespace experimental::crypto;
+
 #include <ESP8266WiFi.h> // Include WiFi library
 #include <ESP8266mDNS.h> // OTA libraries
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
-
 #include <ESP8266HTTPClient.h>
 #include <WiFiClient.h>
-#include <ArduinoJson.h> // https://github.com/bblanchon/ArduinoJson
-
-//////////////////////////////////////////////////////////
-// NOTE: If during compilation, the below line causes a
-// "fatal error: Crypto.h: No such file or directory"
-// message to occur; it means that you do NOT have the
-// latest version of the ESP8266/Arduino Core library.
-//
-// To install/upgrade it, go to the below link and
-// follow the instructions of the readme file:
-//
-//       https://github.com/esp8266/Arduino
-//////////////////////////////////////////////////////////
-#include <Crypto.h>  // experimental SHA1 crypto library
-using namespace experimental::crypto;
-
 #include <Ticker.h>
 
-IPAddress local_IP(192, 168, 1, 10);
+IPAddress local_IP(192, 168, 1, 2);
 IPAddress gateway(192, 168, 1, 1);
 IPAddress subnet(255, 255, 255, 0);
 IPAddress primaryDNS(1, 1, 1, 1);
@@ -50,9 +51,12 @@ const char* SSID            = "YOUR_SSID_WIFI";           // Change this to your
 const char* PASSWORD        = "YOUR_PASSWORD_WIFI";       // Change this to your WiFi password
 const char* USERNAME        = "YOUR_USERNAME_DUINOCOIN";  // Change this to your Duino-Coin username
 const char* RIG_IDENTIFIER  = "ESP8266";                  // Change this if you want a custom miner name
+const bool USE_HIGHER_DIFF  = false;                      // Change to true if using 160 MHz to not get the first share rejected
 
-const char * urlPool = "http://51.15.127.80:4242/getPool";
+const char * get_pool_api[] = {"https://server.duinocoin.com/getPool"};
+const char * miner_version = "Official ESP8266 Miner 2.75";
 unsigned int share_count = 0; // Share variable
+String AutoRigName = "";
 String host = "";
 int port = 0;
 
@@ -70,7 +74,8 @@ void UpdateHostPort(String input) {
 
 String httpGetString(String URL) {
   String payload = "";
-  WiFiClient client;
+  WiFiClientSecure client;
+  client.setInsecure();
   HTTPClient http;
   if (http.begin(client, URL))
   {
@@ -89,19 +94,42 @@ String httpGetString(String URL) {
 }
 
 void UpdatePool() {
-  String input = httpGetString(urlPool);
-  if (input == "") return;
+  String input = "";
+  int waitTime = 1;
+  int poolIndex = 0;
+  int poolSize = sizeof(get_pool_api) / sizeof(char*);
+
+  while (input == "") {
+    Serial.println("Fetching pool (" + String(get_pool_api[poolIndex]) + ")... ");
+    input = httpGetString(get_pool_api[poolIndex]);
+    poolIndex += 1;
+
+    // Check if pool index needs to roll over
+    if( poolIndex >= poolSize ){
+      Serial.println("Retrying pool list in: " + String(waitTime) + "s");
+      poolIndex %= poolSize;
+      delay(waitTime * 1000);
+
+      // Increase wait time till a maximum of 16 seconds (addresses: Limit connection requests on failure in ESP boards #1041)
+      waitTime *= 2;
+      if( waitTime > 16 )
+        waitTime = 16;
+    }
+  }
+
+  // Setup pool with new input
   UpdateHostPort(input);
 }
 
 WiFiClient client;
 String client_buffer = "";
 String chipID = "";
+String START_DIFF = "";
 
 // Loop WDT... please don't feed me...
 // See lwdtcb() and lwdtFeed() below
 Ticker lwdTimer;
-#define LWD_TIMEOUT 60000
+#define LWD_TIMEOUT   60000
 
 unsigned long lwdCurrentMillis = 0;
 unsigned long lwdTimeOutMillis = LWD_TIMEOUT;
@@ -119,7 +147,7 @@ unsigned long lwdTimeOutMillis = LWD_TIMEOUT;
 void SetupWifi() {
   if(!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS)) {
     Serial.println(F("Error config Network..."));
-    }
+  }
   Serial.println("Connecting to: " + String(SSID));
   WiFi.mode(WIFI_STA); // Setup ESP in client mode
   WiFi.setSleepMode(WIFI_NONE_SLEEP);
@@ -136,7 +164,8 @@ void SetupWifi() {
   }
 
   Serial.println("\nConnected to WiFi!");
-  Serial.println("Local IP address: " + WiFi.localIP().toString());
+  Serial.println("    IP address: " + WiFi.localIP().toString());
+  Serial.println("      Rig name: " + String(RIG_IDENTIFIER));
 
   UpdatePool();
 }
@@ -261,23 +290,27 @@ bool max_micros_elapsed(unsigned long current, unsigned long max_elapsed) {
 } // namespace
 
 void setup() {
-  // Start serial connection
   Serial.begin(115200);
-  Serial.println("\nDuino-Coin ESP8266 Miner v2.6.3");
-
-  // Prepare for blink() function
+  Serial.println("\nDuino-Coin " + String(miner_version));
   pinMode(LED_BUILTIN, OUTPUT);
+
+  // Autogenerate ID if required
+  chipID = String(ESP.getChipId(), HEX);
+  if( strcmp(RIG_IDENTIFIER, "Auto") == 0 ){
+    AutoRigName = "ESP8266-" + chipID;
+    AutoRigName.toUpperCase();
+    RIG_IDENTIFIER = AutoRigName.c_str();
+  }
 
   SetupWifi();
   SetupOTA();
 
   lwdtFeed();
   lwdTimer.attach_ms(LWD_TIMEOUT, lwdtcb);
+  if (USE_HIGHER_DIFF) START_DIFF = "ESP8266H";
+  else START_DIFF = "ESP8266";
 
-  // Sucessfull connection with wifi network
   blink(BLINK_SETUP_COMPLETE);
-
-  chipID = String(ESP.getChipId(), HEX);
 }
 
 void loop() {
@@ -290,7 +323,7 @@ void loop() {
 
   ConnectToServer();
   Serial.println("Asking for a new job for user: " + String(USERNAME));
-  client.print("JOB," + String(USERNAME) + ",ESP8266");
+  client.print("JOB," + String(USERNAME) + "," + String(START_DIFF));
 
   waitForClientData();
   String last_block_hash = getValue(client_buffer, SEP_TOKEN, 0);
@@ -322,10 +355,10 @@ void loop() {
       client.print(String(duco_numeric_result)
                    + ","
                    + String(hashrate)
-                   + ",ESP8266 Miner v2.63"
+                   + "," + String(miner_version)
                    + ","
                    + String(RIG_IDENTIFIER)
-                   + ","
+                   + ",DUCOID"
                    + String(chipID));
 
       waitForClientData();
@@ -337,8 +370,7 @@ void loop() {
                      + String(hashrate / 1000, 2)
                      + " kH/s ("
                      + String(elapsed_time_s)
-                     + "s) Free RAM: "
-                     + String(ESP.getFreeHeap()));
+                     + "s)");
 
       blink(BLINK_SHARE_FOUND);
       break;
