@@ -1,18 +1,23 @@
 /*
-  ,------.          ,--.                       ,-----.       ,--.
-  |  .-.  \ ,--.,--.`--',--,--,  ,---. ,-----.'  .--./ ,---. `--',--,--,
-  |  |  \  :|  ||  |,--.|      \| .-. |'-----'|  |    | .-. |,--.|      \
-  |  '--'  /'  ''  '|  ||  ||  |' '-' '       '  '--'\' '-' '|  ||  ||  |
-  `-------'  `----' `--'`--''--' `---'         `-----' `---' `--'`--''--'
-  Official code for ESP8266 boards                          version 2.7.5
+   ____  __  __  ____  _  _  _____       ___  _____  ____  _  _ 
+  (  _ \(  )(  )(_  _)( \( )(  _  )___  / __)(  _  )(_  _)( \( )
+   )(_) ))(__)(  _)(_  )  (  )(_)((___)( (__  )(_)(  _)(_  )  ( 
+  (____/(______)(____)(_)\_)(_____)     \___)(_____)(____)(_)\_)
+  Official code for ESP8266 boards                   version 3.0
 
-  Duino-Coin Team & Community 2019-2021 © MIT Licensed
+  Duino-Coin Team & Community 2019-2022 © MIT Licensed
   https://duinocoin.com
   https://github.com/revoxhere/duino-coin
 
   If you don't know where to start, visit official website and navigate to
   the Getting Started page. Have fun mining!
 */
+
+/* If optimizations cause problems, change them to -O0 (the default)
+NOTE: For even better optimizations also edit your Crypto.h file.
+On linux that file can be found in the following location:
+~/.arduino15//packages/esp8266/hardware/esp8266/3.0.2/cores/esp8266/ */
+#pragma GCC optimize ("-Ofast")
 
 /* If during compilation the line below causes a
   "fatal error: arduinoJson.h: No such file or directory"
@@ -29,16 +34,17 @@
   To install/upgrade it, go to the below link and
   follow the instructions of the readme file:
   https://github.com/esp8266/Arduino */
-#include <Crypto.h>  // experimental SHA1 crypto library
-using namespace experimental::crypto;
+#include <bearssl/bearssl.h>
+#include <TypeConversion.h>
 
-#include <ESP8266WiFi.h> // Include WiFi library
-#include <ESP8266mDNS.h> // OTA libraries
+#include <ESP8266WiFi.h>
+#include <ESP8266mDNS.h>
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
 #include <ESP8266HTTPClient.h>
 #include <WiFiClient.h>
 #include <Ticker.h>
+#include <ESP8266WebServer.h>
 
 IPAddress local_IP(192, 168, 1, 2);
 IPAddress gateway(192, 168, 1, 1);
@@ -47,29 +53,203 @@ IPAddress primaryDNS(1, 1, 1, 1);
 IPAddress secondaryDNS(1, 0, 0, 1);
 
 namespace {
-const char* SSID            = "YOUR_SSID_WIFI";           // Change this to your WiFi name
-const char* PASSWORD        = "YOUR_PASSWORD_WIFI";       // Change this to your WiFi password
-const char* USERNAME        = "YOUR_USERNAME_DUINOCOIN";  // Change this to your Duino-Coin username
-const char* RIG_IDENTIFIER  = "ESP8266";                  // Change this if you want a custom miner name
-const bool USE_HIGHER_DIFF  = false;                      // Change to true if using 160 MHz to not get the first share rejected
+const char* SSID = "YOUR_WIFI";           // Change the part in brackets to your WiFi name
+const char* PASSWORD = "YOUR_PASS_WIFI";  // Change the part in brackets to your WiFi password
+const char* USERNAME = "YOUR_USERNAME";   // Change the part in brackets to your Duino-Coin username
+const char* RIG_IDENTIFIER = "ESP8266";   // Change the part in brackets if you want to set a custom miner name (use Auto to autogenerate)
+const bool USE_HIGHER_DIFF = true;        // Change false to true if using 160 MHz clock mode to not get the first share rejected
+const bool WEB_HASH_UPDATER = true;       // Change false to true if you want to update hashrate in browser without reloading page
+const bool LED_BLINKING = true;           // Change true to false if you want to disable led blinking(But the LED will work in the beginning until esp connects to the pool)
 
-const char * get_pool_api[] = {"https://server.duinocoin.com/getPool"};
-const char * miner_version = "Official ESP8266 Miner 2.75";
-unsigned int share_count = 0; // Share variable
+/* Do not change the lines below. These lines are static and dynamic variables
+   that will be used by the program for counters and measurements. */
+const char * DEVICE = "ESP8266";
+const char * POOLPICKER_URL[] = {"https://server.duinocoin.com/getPool"};
+const char * MINER_BANNER = "Official ESP8266 Miner";
+const char * MINER_VER = "3.0";
+unsigned int share_count = 0;
+unsigned int port = 0;
+unsigned int difficulty = 0;
+float hashrate = 0;
 String AutoRigName = "";
 String host = "";
-int port = 0;
+String node_id = "";
+
+const char WEBSITE[] PROGMEM = R"=====(
+<!DOCTYPE html>
+<html>
+<!--
+    Duino-Coin self-hosted dashboard
+    MIT licensed
+    Duino-Coin official 2019-2021
+    https://github.com/revoxhere/duino-coin
+    https://duinocoin.com
+-->
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Duino-Coin @@DEVICE@@ dashboard</title>
+    <link rel="stylesheet" href="https://server.duinocoin.com/assets/css/mystyles.css">
+    <link rel="shortcut icon" href="https://github.com/revoxhere/duino-coin/blob/master/Resources/duco.png?raw=true">
+    <link rel="icon" type="image/png" href="https://github.com/revoxhere/duino-coin/blob/master/Resources/duco.png?raw=true">
+</head>
+
+<body>
+    <section class="section">
+        <div class="container">
+            <h1 class="title">
+                <img class="icon" src="https://github.com/revoxhere/duino-coin/blob/master/Resources/duco.png?raw=true">
+                @@DEVICE@@ <small>(@@ID@@)</small>
+            </h1>
+            <p class="subtitle">
+                Self-hosted, lightweight, official dashboard for your <strong>Duino-Coin</strong> miner
+            </p>
+        </div>
+        <br>
+        <div class="container">
+            <div class="columns">
+                <div class="column">
+                    <div class="box">
+                        <p class="subtitle">
+                            Mining statistics
+                        </p>
+                        <div class="columns is-multiline">
+                            <div class="column" style="min-width:15em">
+                                <div class="title is-size-5 mb-0">
+                                    <span id="hashratex">@@HASHRATE@@</span>kH/s
+                                </div>
+                                <div class="heading is-size-5">
+                                    Hashrate
+                                </div>
+                            </div>
+                            <div class="column" style="min-width:15em">
+                                <div class="title is-size-5 mb-0">
+                                    @@DIFF@@
+                                </div>
+                                <div class="heading is-size-5">
+                                    Difficulty
+                                </div>
+                            </div>
+                            <div class="column" style="min-width:15em">
+                                <div class="title is-size-5 mb-0">
+                                    @@SHARES@@
+                                </div>
+                                <div class="heading is-size-5">
+                                    Shares
+                                </div>
+                            </div>
+                            <div class="column" style="min-width:15em">
+                                <div class="title is-size-5 mb-0">
+                                    @@NODE@@
+                                </div>
+                                <div class="heading is-size-5">
+                                    Node
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="column">
+                    <div class="box">
+                        <p class="subtitle">
+                            Device information
+                        </p>
+                        <div class="columns is-multiline">
+                            <div class="column" style="min-width:15em">
+                                <div class="title is-size-5 mb-0">
+                                    @@DEVICE@@
+                                </div>
+                                <div class="heading is-size-5">
+                                    Device type
+                                </div>
+                            </div>
+                            <div class="column" style="min-width:15em">
+                                <div class="title is-size-5 mb-0">
+                                    @@ID@@
+                                </div>
+                                <div class="heading is-size-5">
+                                    Device ID
+                                </div>
+                            </div>
+                            <div class="column" style="min-width:15em">
+                                <div class="title is-size-5 mb-0">
+                                    @@MEMORY@@
+                                </div>
+                                <div class="heading is-size-5">
+                                    Free memory
+                                </div>
+                            </div>
+                            <div class="column" style="min-width:15em">
+                                <div class="title is-size-5 mb-0">
+                                    @@VERSION@@
+                                </div>
+                                <div class="heading is-size-5">
+                                    Miner version
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <br>
+            <div class="has-text-centered">
+                <div class="title is-size-6 mb-0">
+                    Hosted on
+                    <a href="http://@@IP_ADDR@@">
+                        http://<b>@@IP_ADDR@@</b>
+                    </a>
+                    &bull;
+                    <a href="https://duinocoin.com">
+                        duinocoin.com
+                    </a>
+                    &bull;
+                    <a href="https://github.com/revoxhere/duino-coin">
+                        github.com/revoxhere/duino-coin
+                    </a>
+                </div>
+            </div>
+        </div>
+        <script>
+            setInterval(function(){
+                getData();
+            }, 3000);
+            
+            function getData() {
+                var xhttp = new XMLHttpRequest();
+                xhttp.onreadystatechange = function() {
+                    if (this.readyState == 4 && this.status == 200) {
+                        document.getElementById("hashratex").innerHTML = this.responseText;
+                    }
+                };
+                xhttp.open("GET", "hashrateread", true);
+                xhttp.send();
+            }
+        </script>
+    </section>
+</body>
+
+</html>
+)=====";
+
+ESP8266WebServer server(80);
+
+void hashupdater(){ //update hashrate every 3 sec in browser without reloading page
+  server.send(200, "text/plane", String(hashrate / 1000));
+  Serial.println("Update hashrate on page");
+};
 
 void UpdateHostPort(String input) {
   // Thanks @ricaun for the code
   DynamicJsonDocument doc(256);
   deserializeJson(doc, input);
-
   const char* name = doc["name"];
+  
   host = String((const char*)doc["ip"]);
   port = int(doc["port"]);
+  node_id = String(name);
 
-  Serial.println("Fetched pool: " + String(name) + " " + String(host) + " " + String(port));
+  Serial.println("Poolpicker selected the best mining node: " + node_id);
 }
 
 String httpGetString(String URL) {
@@ -77,17 +257,13 @@ String httpGetString(String URL) {
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient http;
-  if (http.begin(client, URL))
-  {
+  
+  if (http.begin(client, URL)) {
     int httpCode = http.GET();
-    if (httpCode == HTTP_CODE_OK)
-    {
-      payload = http.getString();
-    }
-    else
-    {
-      Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
-    }
+    
+    if (httpCode == HTTP_CODE_OK) payload = http.getString();
+    else Serial.printf("Error fetching node from poolpicker: %s\n", http.errorToString(httpCode).c_str());
+
     http.end();
   }
   return payload;
@@ -97,23 +273,22 @@ void UpdatePool() {
   String input = "";
   int waitTime = 1;
   int poolIndex = 0;
-  int poolSize = sizeof(get_pool_api) / sizeof(char*);
+  int poolSize = sizeof(POOLPICKER_URL) / sizeof(char*);
 
   while (input == "") {
-    Serial.println("Fetching pool (" + String(get_pool_api[poolIndex]) + ")... ");
-    input = httpGetString(get_pool_api[poolIndex]);
+    Serial.println("Fetching mining node from the poolpicker in " + String(waitTime) + "s");
+    input = httpGetString(POOLPICKER_URL[poolIndex]);
     poolIndex += 1;
 
     // Check if pool index needs to roll over
     if( poolIndex >= poolSize ){
-      Serial.println("Retrying pool list in: " + String(waitTime) + "s");
       poolIndex %= poolSize;
       delay(waitTime * 1000);
 
-      // Increase wait time till a maximum of 16 seconds (addresses: Limit connection requests on failure in ESP boards #1041)
+      // Increase wait time till a maximum of 32 seconds (addresses: Limit connection requests on failure in ESP boards #1041)
       waitTime *= 2;
-      if( waitTime > 16 )
-        waitTime = 16;
+      if( waitTime > 32 )
+        waitTime = 32;
     }
   }
 
@@ -148,6 +323,7 @@ void SetupWifi() {
   if(!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS)) {
     Serial.println(F("Error config Network..."));
   }
+  
   Serial.println("Connecting to: " + String(SSID));
   WiFi.mode(WIFI_STA); // Setup ESP in client mode
   WiFi.setSleepMode(WIFI_NONE_SLEEP);
@@ -163,9 +339,10 @@ void SetupWifi() {
     }
   }
 
-  Serial.println("\nConnected to WiFi!");
-  Serial.println("    IP address: " + WiFi.localIP().toString());
-  Serial.println("      Rig name: " + String(RIG_IDENTIFIER));
+  Serial.println("\n\nnSuccessfully connected to WiFi");
+  Serial.println("Local IP address: " + WiFi.localIP().toString());
+  Serial.println("Rig name: " + String(RIG_IDENTIFIER));
+  Serial.println();
 
   UpdatePool();
 }
@@ -195,25 +372,26 @@ void SetupOTA() {
 }
 
 void blink(uint8_t count, uint8_t pin = LED_BUILTIN) {
-  uint8_t state = HIGH;
+  if (LED_BLINKING){
+    uint8_t state = HIGH;
 
-  for (int x = 0; x < (count << 1); ++x) {
-    digitalWrite(pin, state ^= HIGH);
-    delay(50);
+    for (int x = 0; x < (count << 1); ++x) {
+      digitalWrite(pin, state ^= HIGH);
+      delay(50);
+    }
   }
 }
 
 void RestartESP(String msg) {
   Serial.println(msg);
-  Serial.println("Resetting ESP...");
+  Serial.println("Restarting ESP...");
   blink(BLINK_RESET_DEVICE);
   ESP.reset();
 }
 
 // Our new WDT to help prevent freezes
 // code concept taken from https://sigmdel.ca/michel/program/esp8266/arduino/watchdogs2_en.html
-void ICACHE_RAM_ATTR lwdtcb(void)
-{
+void ICACHE_RAM_ATTR lwdtcb(void) {
   if ((millis() - lwdCurrentMillis > LWD_TIMEOUT) || (lwdTimeOutMillis - lwdCurrentMillis != LWD_TIMEOUT))
     RestartESP("Loop WDT Failed!");
 }
@@ -270,7 +448,7 @@ void ConnectToServer() {
   if (client.connected())
     return;
 
-  Serial.println("\nConnecting to Duino-Coin server...");
+  Serial.println("\n\nConnecting to the Duino-Coin server...");
   while (!client.connect(host, port));
 
   waitForClientData();
@@ -287,11 +465,31 @@ bool max_micros_elapsed(unsigned long current, unsigned long max_elapsed) {
   }
   return false;
 }
+
+void dashboard() {
+  Serial.println("Handling HTTP client");
+
+  String s = WEBSITE;
+  s.replace("@@IP_ADDR@@", WiFi.localIP().toString());
+  
+  s.replace("@@HASHRATE@@", String(hashrate / 1000));
+  s.replace("@@DIFF@@", String(difficulty / 100));
+  s.replace("@@SHARES@@", String(share_count));
+  s.replace("@@NODE@@", String(node_id));
+
+  s.replace("@@DEVICE@@", String(DEVICE));
+  s.replace("@@ID@@", String(RIG_IDENTIFIER));
+  s.replace("@@MEMORY@@", String(ESP.getFreeHeap()));
+  s.replace("@@VERSION@@", String(MINER_VER));
+
+  server.send(200, "text/html", s);
+}
+
 } // namespace
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("\nDuino-Coin " + String(miner_version));
+  Serial.println("\nDuino-Coin " + String(MINER_VER));
   pinMode(LED_BUILTIN, OUTPUT);
 
   // Autogenerate ID if required
@@ -310,16 +508,34 @@ void setup() {
   if (USE_HIGHER_DIFF) START_DIFF = "ESP8266H";
   else START_DIFF = "ESP8266";
 
+  if (!MDNS.begin(RIG_IDENTIFIER)) {
+    Serial.println("mDNS unavailable");
+  }
+  MDNS.addService("http", "tcp", 80);
+  Serial.print("Configured mDNS for dashboard on http://" 
+                + String(RIG_IDENTIFIER)
+                + ".local (or http://"
+                + WiFi.localIP().toString()
+                + ")");
+  server.on("/", dashboard);
+  if (WEB_HASH_UPDATER) server.on("/hashrateread", hashupdater);
+  server.begin();
+
   blink(BLINK_SETUP_COMPLETE);
 }
 
 void loop() {
+  br_sha1_context sha1_ctx, sha1_ctx_base;
+  uint8_t hashArray[20];
+  String duco_numeric_result_str;
+  
   // 1 minute watchdog
   lwdtFeed();
 
   // OTA handlers
   VerifyWifi();
   ArduinoOTA.handle();
+  server.handleClient();
 
   ConnectToServer();
   Serial.println("Asking for a new job for user: " + String(USERNAME));
@@ -328,34 +544,41 @@ void loop() {
   waitForClientData();
   String last_block_hash = getValue(client_buffer, SEP_TOKEN, 0);
   String expected_hash = getValue(client_buffer, SEP_TOKEN, 1);
-  unsigned int difficulty = getValue(client_buffer, SEP_TOKEN, 2).toInt() * 100 + 1;
+  difficulty = getValue(client_buffer, SEP_TOKEN, 2).toInt() * 100 + 1;
 
-  Serial.println("Job received: "
-                 + last_block_hash
-                 + " "
-                 + expected_hash
-                 + " "
-                 + String(difficulty));
+  int job_len = last_block_hash.length() + expected_hash.length() + String(difficulty).length();
+  Serial.println("Received a correct job with size of " + String(job_len) + " bytes");
   expected_hash.toUpperCase();
+  br_sha1_init(&sha1_ctx_base);
+  br_sha1_update(&sha1_ctx_base, last_block_hash.c_str(), last_block_hash.length());
 
   float start_time = micros();
   max_micros_elapsed(start_time, 0);
 
+  String result = "";
+  digitalWrite(LED_BUILTIN, HIGH);
   for (unsigned int duco_numeric_result = 0; duco_numeric_result < difficulty; duco_numeric_result++) {
     // Difficulty loop
-    String result = SHA1::hash(last_block_hash + String(duco_numeric_result));
-
+    sha1_ctx = sha1_ctx_base;
+    duco_numeric_result_str = String(duco_numeric_result);
+    br_sha1_update(&sha1_ctx, duco_numeric_result_str.c_str(), duco_numeric_result_str.length());
+    br_sha1_out(&sha1_ctx, hashArray);
+    result = experimental::TypeConversion::uint8ArrayToHexString(hashArray, 20);
     if (result == expected_hash) {
       // If result is found
       unsigned long elapsed_time = micros() - start_time;
       float elapsed_time_s = elapsed_time * .000001f;
-      float hashrate = duco_numeric_result / elapsed_time_s;
+      hashrate = duco_numeric_result / elapsed_time_s;
       share_count++;
+      blink(BLINK_SHARE_FOUND);
 
       client.print(String(duco_numeric_result)
                    + ","
                    + String(hashrate)
-                   + "," + String(miner_version)
+                   + ","
+                   + String(MINER_BANNER)
+                   + " "
+                   + String(MINER_VER)
                    + ","
                    + String(RIG_IDENTIFIER)
                    + ",DUCOID"
@@ -371,11 +594,9 @@ void loop() {
                      + " kH/s ("
                      + String(elapsed_time_s)
                      + "s)");
-
-      blink(BLINK_SHARE_FOUND);
       break;
     }
-    if (max_micros_elapsed(micros(), 250000))
+    if (max_micros_elapsed(micros(), 500000))
       handleSystemEvents();
   }
 }
