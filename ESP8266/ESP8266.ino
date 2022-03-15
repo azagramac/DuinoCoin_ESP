@@ -3,7 +3,7 @@
   (  _ \(  )(  )(_  _)( \( )(  _  )___  / __)(  _  )(_  _)( \( )
    )(_) ))(__)(  _)(_  )  (  )(_)((___)( (__  )(_)(  _)(_  )  ( 
   (____/(______)(____)(_)\_)(_____)     \___)(_____)(____)(_)\_)
-  Official code for ESP8266 boards                   version 3.0
+  Official code for ESP8266 boards                   version 3.1
 
   Duino-Coin Team & Community 2019-2022 © MIT Licensed
   https://duinocoin.com
@@ -46,27 +46,29 @@ On linux that file can be found in the following location:
 #include <Ticker.h>
 #include <ESP8266WebServer.h>
 
-IPAddress local_IP(192, 168, 1, 2);
+IPAddress local_IP(192, 168, 1, 10);
 IPAddress gateway(192, 168, 1, 1);
 IPAddress subnet(255, 255, 255, 0);
 IPAddress primaryDNS(1, 1, 1, 1);
 IPAddress secondaryDNS(1, 0, 0, 1);
 
 namespace {
-const char* SSID = "YOUR_WIFI";           // Change the part in brackets to your WiFi name
-const char* PASSWORD = "YOUR_PASS_WIFI";  // Change the part in brackets to your WiFi password
-const char* USERNAME = "YOUR_USERNAME";   // Change the part in brackets to your Duino-Coin username
-const char* RIG_IDENTIFIER = "ESP8266";   // Change the part in brackets if you want to set a custom miner name (use Auto to autogenerate)
-const bool USE_HIGHER_DIFF = true;        // Change false to true if using 160 MHz clock mode to not get the first share rejected
-const bool WEB_HASH_UPDATER = true;       // Change false to true if you want to update hashrate in browser without reloading page
-const bool LED_BLINKING = true;           // Change true to false if you want to disable led blinking(But the LED will work in the beginning until esp connects to the pool)
+const char* SSID = "YOUR_WIFI";              // Change the part in brackets to your WiFi name
+const char* PASSWORD = "YOUR_PASS_WIFI";     // Change the part in brackets to your WiFi password
+const char* USERNAME = "YOUR_USERNAME";      // Change the part in brackets to your Duino-Coin username
+const char* RIG_IDENTIFIER = "ESP8266";      // Change the part in brackets if you want to set a custom miner name (use Auto to autogenerate)
+const char* MINER_KEY = "YOUR_KEY_WALLET";   // Change the part in brackets to your mining key (if you enabled it in the wallet)
+const bool USE_HIGHER_DIFF = true;           // Change false to true if using 160 MHz clock mode to not get the first share rejected
+const bool WEB_HASH_UPDATER = true;          // Change false to true if you want to update hashrate in browser without reloading page
+const bool LED_BLINKING = true;              // Change true to false if you want to disable led blinking(But the LED will work in the beginning until esp connects to the pool)
+
 
 /* Do not change the lines below. These lines are static and dynamic variables
    that will be used by the program for counters and measurements. */
 const char * DEVICE = "ESP8266";
 const char * POOLPICKER_URL[] = {"https://server.duinocoin.com/getPool"};
 const char * MINER_BANNER = "Official ESP8266 Miner";
-const char * MINER_VER = "3.0";
+const char * MINER_VER = "3.1";
 unsigned int share_count = 0;
 unsigned int port = 0;
 unsigned int difficulty = 0;
@@ -81,7 +83,7 @@ const char WEBSITE[] PROGMEM = R"=====(
 <!--
     Duino-Coin self-hosted dashboard
     MIT licensed
-    Duino-Coin official 2019-2021
+    Duino-Coin official 2019-2022
     https://github.com/revoxhere/duino-coin
     https://duinocoin.com
 -->
@@ -320,6 +322,7 @@ unsigned long lwdTimeOutMillis = LWD_TIMEOUT;
 #define BLINK_RESET_DEVICE   5
 
 void SetupWifi() {
+
   if(!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS)) {
     Serial.println(F("Error config Network..."));
   }
@@ -508,18 +511,20 @@ void setup() {
   if (USE_HIGHER_DIFF) START_DIFF = "ESP8266H";
   else START_DIFF = "ESP8266";
 
-  if (!MDNS.begin(RIG_IDENTIFIER)) {
-    Serial.println("mDNS unavailable");
+  if(WEB_DASHBOARD) {
+    if (!MDNS.begin(RIG_IDENTIFIER)) {
+      Serial.println("mDNS unavailable");
+    }
+    MDNS.addService("http", "tcp", 80);
+    Serial.print("Configured mDNS for dashboard on http://" 
+                  + String(RIG_IDENTIFIER)
+                  + ".local (or http://"
+                  + WiFi.localIP().toString()
+                  + ")");
+    server.on("/", dashboard);
+    if (WEB_HASH_UPDATER) server.on("/hashrateread", hashupdater);
+    server.begin();
   }
-  MDNS.addService("http", "tcp", 80);
-  Serial.print("Configured mDNS for dashboard on http://" 
-                + String(RIG_IDENTIFIER)
-                + ".local (or http://"
-                + WiFi.localIP().toString()
-                + ")");
-  server.on("/", dashboard);
-  if (WEB_HASH_UPDATER) server.on("/hashrateread", hashupdater);
-  server.begin();
 
   blink(BLINK_SETUP_COMPLETE);
 }
@@ -535,11 +540,11 @@ void loop() {
   // OTA handlers
   VerifyWifi();
   ArduinoOTA.handle();
-  server.handleClient();
+  if(WEB_DASHBOARD) server.handleClient();
 
   ConnectToServer();
   Serial.println("Asking for a new job for user: " + String(USERNAME));
-  client.print("JOB," + String(USERNAME) + "," + String(START_DIFF));
+  client.print("JOB," + String(USERNAME) + "," + String(START_DIFF) + "," + String(MINER_KEY));
 
   waitForClientData();
   String last_block_hash = getValue(client_buffer, SEP_TOKEN, 0);
@@ -597,6 +602,12 @@ void loop() {
       break;
     }
     if (max_micros_elapsed(micros(), 500000))
+    {
       handleSystemEvents();
+    }
+    else
+    {
+      delay(0);
+    }
   }
 }
