@@ -3,9 +3,9 @@
   (  _ \(  )(  )(_  _)( \( )(  _  )___  / __)(  _  )(_  _)( \( )
    )(_) ))(__)(  _)(_  )  (  )(_)((___)( (__  )(_)(  _)(_  )  (
   (____/(______)(____)(_)\_)(_____)     \___)(_____)(____)(_)\_)
-  Official code for ESP32 boards                     version 3.0
+  Official code for ESP32 boards                     version 3.1
 
-  Duino-Coin Team & Community 2019-2021 © MIT Licensed
+  Duino-Coin Team & Community 2019-2022 © MIT Licensed
   https://duinocoin.com
   https://github.com/revoxhere/duino-coin
 
@@ -14,11 +14,13 @@
 */
 
 /***************** START OF MINER CONFIGURATION SECTION *****************/
-const char *SSID = "YOUR_WIFI";             // Change the part in brackets to your WiFi name
-const char *WIFI_PASS = "YOUR_PASS_WIFI";   // Change the part in brackets to your WiFi password
-const char *DUCO_USER = "YOUR_USERNAME";    // Change the part in brackets to your Duino-Coin username
-const char *RIG_IDENTIFIER = "ESP32";       // Change the part in brackets if you want to set a custom miner name (use Auto to autogenerate)
-#define LED_BUILTIN 2                       // Change this if your board has built-in led on non-standard pin
+const char *SSID = "YOUR_WIFI";              // Change the part in brackets to your WiFi name
+const char *WIFI_PASS = "YOUR_PASS_WIFI";    // Change the part in brackets to your WiFi password
+const char *DUCO_USER = "YOUR_USERNAME";     // Change the part in brackets to your Duino-Coin username
+const char *RIG_IDENTIFIER = "ESP32";        // Change the part in brackets if you want to set a custom miner name (use Auto to autogenerate, None for no name)
+const char* MINER_KEY = "YOUR_KEY_WALLET";   // Change the part in brackets to your mining key (if you enabled it in the wallet)
+#define LED_BUILTIN 2                        // Change this if your board has built-in led on non-standard pin
+
 
 #define BLINK_SHARE_FOUND    1
 #define BLINK_SETUP_COMPLETE 2
@@ -106,7 +108,6 @@ typedef struct TaskData {
 #include <esp_task_wdt.h>
 #include <WebServer.h>
 
-// Change the IP to the one in your range. 
 IPAddress local_IP(192, 168, 1, 10);
 IPAddress gateway(192, 168, 1, 1);
 IPAddress subnet(255, 255, 255, 0);
@@ -135,7 +136,7 @@ SemaphoreHandle_t xMutex;
 const char * DEVICE = "ESP32";
 const char * POOLPICKER_URL[] = {"https://server.duinocoin.com/getPool"};
 const char * MINER_BANNER = "Official ESP32 Miner";
-const char * MINER_VER = "3.0";
+const char * MINER_VER = "3.1";
 String pool_name = "";
 String host = "";
 String node_id = "";
@@ -155,7 +156,7 @@ const char WEBSITE[] PROGMEM = R"=====(
 <!--
     Duino-Coin self-hosted dashboard
     MIT licensed
-    Duino-Coin official 2019-2021
+    Duino-Coin official 2019-2022
     https://github.com/revoxhere/duino-coin
     https://duinocoin.com
 -->
@@ -456,7 +457,7 @@ void WiFireconnect(void *pvParameters) {
     if(!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS)) {
       Serial.println(F("Network error!"));
     }
-    
+
     server.handleClient();
 
     if (ota_state)  // If OTA is working, reset the watchdog
@@ -623,7 +624,7 @@ void TaskMining(void *pvParameters) {
       // We are connected and are able to request a job
       Serial.println(String(taskCoreName + " asking for a new job for user: " + DUCO_USER));
       jobClient.flush();
-      jobClient.print("JOB," + String(DUCO_USER) + ",ESP32" + MSGNEWLINE);
+      jobClient.print("JOB," + String(DUCO_USER) + ",ESP32," + String(MINER_KEY) + MSGNEWLINE);
       while (!jobClient.available()) {
         if (!jobClient.connected()) break;
         delay(10);
@@ -645,7 +646,7 @@ void TaskMining(void *pvParameters) {
       String expectedHash = jobClient.readStringUntil(MSGDELIMITER);
       TaskThreadData[taskId].difficulty = jobClient.readStringUntil(MSGNEWLINE).toInt() * 100;
       jobClient.flush();
-      digitalWrite(LED_BUILTIN, LOW);
+      if (LED_BLINKING) digitalWrite(LED_BUILTIN, LOW);
 
       // Global Definitions
       unsigned int job_size_task_one = 100;
@@ -723,7 +724,7 @@ void TaskMining(void *pvParameters) {
           String feedback = jobClient.readStringUntil(MSGNEWLINE);
           jobClient.flush();
           TaskThreadData[taskId].shares++;
-          digitalWrite(LED_BUILTIN, HIGH);
+          if (LED_BLINKING) digitalWrite(LED_BUILTIN, HIGH);
 
           // Validate Hashrate
           if ( TaskThreadData[taskId].hashrate < 4000 && !ignoreHashrate) {
