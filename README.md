@@ -18,5 +18,7 @@ ESP8266 and ESP32 code, for mining DuinoCoin by [@revox](https://github.com/revo
 ### Library boards
 ```
 https://dl.espressif.com/dl/package_esp32_index.json
+
+https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_dev_index.json
 https://arduino.esp8266.com/stable/package_esp8266com_index.json
 ```
